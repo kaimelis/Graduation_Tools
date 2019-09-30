@@ -1,0 +1,179 @@
+usage()
+{
+    echo "tbs unity build"
+
+}
+
+cmd_help()
+{
+    usage
+    exit 0
+}
+
+cmd_default()
+{
+    cmd_help
+}
+
+cmd_develop()
+{
+    exit_with_status "true"
+    update_develop_version
+    pause 'Press [Enter] key to quit...'
+}
+
+cmd_production()
+{
+    exit_with_status "true"
+    require_develop_branch "build prod"
+    get_version
+    update_changelog
+    git_handle "[AUTO] Build was made. ProjectSettings, VERSION, CHANGES.md have been updated. $CURRENT_VERSION"
+}
+
+cmd_prepare()
+{
+    exit_with_status "true"
+    #check if we are on develop branch
+    require_develop_branch "build prod"
+    #check if we have a clean directory
+    require_clean_work_tree "build prod"
+}
+
+cmd_version()
+{
+    exit_with_status "true"
+    create_tag $1
+    pause 'Press [Enter] key to quit...'
+}
+
+function update_develop_version()
+{
+    LOCAL_VERSION_FILE=tmp/local_version
+    LOCAL_VERSION=`git describe --tags --always`
+    echo "$LOCAL_VERSION"
+    echo $LOCAL_VERSION > $LOCAL_VERSION_FILE
+}
+
+function create_tag()
+{
+    local CHANGE_FILES="VERSION CHANGES.md"
+    BUILD_VERSION=`git describe 2>/dev/null`
+    if [ $? -eq 0 ]; then
+        set -e
+        echo "Tag exists"
+        CURRENT_VERSION=`echo $BUILD_VERSION | awk '{split($0,a,"-"); print a[1]}'`
+        echo $CURRENT_VERSION > VERSION
+        echo "## Version $CURRENT_VERSION" > CHANGES.md
+        git log --pretty=format:" - %s" >> CHANGES.md
+        echo "" >> CHANGES.md
+        echo "" >> CHANGES.md   
+        set +e
+    else
+        set -e
+        CURRENT_VERSION=$1
+        echo "Tag doesn't exist"
+        echo $CURRENT_VERSION > VERSION
+        echo "## Version $CURRENT_VERSION" > CHANGES.md
+        git log --pretty=format:" - %s" >> CHANGES.md
+        echo "" >> CHANGES.md
+        echo "" >> CHANGES.md
+        set +e
+        git_handle "[AUTO] First tag has been created. VERSION, CHANGE.md added. $CURRENT_VERSION"
+    fi
+    exit_with_status "true"
+    echo $CURRENT_VERSION
+}
+
+cmd_reset()
+{
+    exit_with_status "true"
+    set -e
+    git checkout HEAD -- "ProjectSettings/ProjectSettings.asset" 2>/dev/null
+    set +e
+    exit 1
+}
+
+function get_version()
+{
+    CURRENT_VERSION=""
+    OLD_VERSION=`git describe --abbrev=0`
+    echo "Old version : $OLD_VERSION"
+    if [ -f VERSION ];then
+        echo "Version file has been found"
+        CURRENT_VERSION=`cat VERSION`
+        if [ "$OLD_VERSION" == "$CURRENT_VERSION" ];then
+            exit_with_status "false"
+            exit_with_message "Old and new versions match. Please update your version in Unity."
+        fi
+        if git rev-parse "$CURRENT_VERSION" >/dev/null 2>&1; then
+            echo "Version that tried to push. $CURRENT_VERSION"
+            exit_with_status "false"
+            exit_with_message "Version already exists. Git won't be continuing."
+        fi
+    else
+        exit_with_status "false"
+        exit_with_message "No version file found. Please create a Version File."
+    fi
+    echo "File version: $CURRENT_VERSION"
+}
+
+function update_changelog()
+{
+    set -e
+    mkdir -p tmp
+    set +e
+
+    local TMPFILE=tmp/TMPFILE
+    echo "## Version $CURRENT_VERSION:" > $TMPFILE
+    git log --pretty=format:" - %s" "$OLD_VERSION"...HEAD >> $TMPFILE 
+    echo "" >> $TMPFILE
+    echo "" >> $TMPFILE
+    cat CHANGES.md >> $TMPFILE
+    mv $TMPFILE CHANGES.md
+    echo "changelog has been updated"
+
+}
+
+function git_handle()
+{
+    set -e
+
+    if [ $CURRENT_VERSION == "" ]; then
+        exit_with_status "false"
+        exit_with_message "The version change failed. Check if you provided a correct version."
+    fi
+
+    CHANGED_FILES="VERSION CHANGES.md ProjectSettings/ProjectSettings.asset"
+    git add $CHANGED_FILES
+    git checkout -- .
+    git commit -m "$1"
+    git fetch origin master:master
+    git checkout master
+    git merge develop
+    set -e
+    git tag -a -m "Tagging version $CURRENT_VERSION" $CURRENT_VERSION
+    set +e
+    git push origin --tags
+    git push
+    git checkout develop
+    git merge master
+    git pull
+    git push
+    set +e
+    exit_with_status "true"
+    exit_with_message "$(tput setaf 2)-----------Finished with the process.----------------$(tput sgr 0)"
+}
+
+cmd_pause()
+{
+    pause 'Press [Enter] key to quit...'
+}
+
+function exit_with_message()
+{
+    set +e
+    echo $1
+    pause 'Press [Enter] key to quit...'
+}
+

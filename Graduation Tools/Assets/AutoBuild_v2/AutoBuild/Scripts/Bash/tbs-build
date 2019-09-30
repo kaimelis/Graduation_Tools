@@ -1,0 +1,623 @@
+usage()
+{
+    echo "usage: tbs build <environment> <platform> [<options>]"
+    echo "       tbs build <task>"
+    echo
+    echo "Make a development or production build for Unity. The build is created inside the Build directory,"
+    echo "using a name that references the current commit. In case of a production build the versioning is"
+    echo "automatically managed. This command allows also to run single build-related tasks like unit tests."
+    echo
+    echo "Available <environment> values:"
+    echo "   dev                    Create a build for development environment, with Debug options enabled."
+    echo "   prod                   Create a build for production environment, ready to be released."
+    echo "                          The main actions performed are the following:"
+    echo "                          - Run unit tests"
+    echo "                          - Update and commit the VERSION, CHANGELOG and ProjectSettings files"
+    echo "                          - Update tags and branches with git, pushing all the changes"
+    echo
+    echo "Available <platform> values:"
+    echo "   android                Build using Android platform."
+    echo "   iOS                    Build using iOS platform."
+    echo
+    echo "Available <options> are:"
+    echo "   --skip-tests           Skip unit tests."
+    echo "   --skip-version         Skip versioning and does not push anything to git."
+    echo "   --skip-version-tests   Skips unity tests, versioning and does not push anything to git."
+    echo
+    echo "Available <task> values:"
+    echo "   tests                  Run unit tests of the project."
+
+}
+
+cmd_help()
+{
+    usage
+    exit 0
+}
+
+cmd_default()
+{
+    cmd_help
+}
+
+cmd_tests()
+{
+    setup_variables
+    set -e
+    mkdir -p tmp
+    echo "" > $UNITY_LOG_FILE
+    echo "" > $UNITY_RESULT_FILE
+    set +e
+    run_test
+}
+
+cmd_dev()
+{
+    require_git_root "build dev"
+    setup_variables
+    # Create packages folder if it doesn't exist and cd into it
+    set -e
+    mkdir -p tmp
+    echo "" > $UNITY_LOG_FILE
+    echo "" > $UNITY_RESULT_FILE
+    echo "" > $LOCAL_VERSION_FILE
+
+    local RESPONSE=$1
+    set +e
+    if [ "$RESPONSE" = "android" ]; then RESPONSE="android"; fi
+    if [ "$RESPONSE" = "Android" ]; then RESPONSE="android"; fi
+
+    if [ "$RESPONSE" = "ios" ]; then RESPONSE="iOS"; fi
+    if [ "$RESPONSE" = "iOS" ]; then RESPONSE="iOS"; fi
+    if [ "$RESPONSE" = "IOS" ]; then RESPONSE="iOS"; fi
+
+    if [ "$RESPONSE" = "android" ];
+    then
+        echo "Chose android platform"
+        build_dev_android
+    elif [ "$RESPONSE" = "iOS" ];
+    then
+        echo "Chose iOS platform"
+        build_dev_iOS
+    elif [ "$RESPONSE" != "android" ]  || [ "$RESPONSE" != "iOS" ];
+    then
+		exit_with_error "\"$RESPONSE\" is not a valid <platform>."
+    fi
+}
+
+cmd_prod()
+{
+    #check if we are at the root of a Unity project
+    require_git_root "build prod"
+    #check if we are on develop branch
+    require_develop_branch "build prod"
+    #check if we have a clean directory
+    require_clean_work_tree "build prod"
+    #check if unity path exists
+    setup_variables
+    if [ ! -f "$UNITY_EXE" ]; then
+        exit_with_error "Cannot find Unity executable at: $UNITY_EXE"
+    fi
+    # Create tmp folder if it doesn't exist and cd into it7
+    set -e
+    mkdir -p tmp
+    echo "" > $UNITY_LOG_FILE
+    echo "" > $UNITY_RESULT_FILE
+    local RESPONSE_SECOND=$2
+    #Checking if extra commands that were added are correct and not mispelled.
+    if [ "$RESPONSE_SECOND" != "--skip-tests" ] && [ "$RESPONSE_SECOND" != "--skip-version" ] && [ "$RESPONSE_SECOND" != "" ] && [ "$RESPONSE_SECOND" != "--skip-version-tests" ]; then
+        exit_with_error "The command is incorect. Check the usage of tbs to have correct command."
+    fi
+
+    # Ask for passwords and write them temporarily to files
+    check_password Alias
+    echo $RETVAL > $ALIAS_PASSWORD_FILE
+    check_password Keystore
+    echo $RETVAL > $KEYSTORE_PASSWORD_FILE
+    #Checking if master is not merged on develop
+    local MERGEBASE="$(git merge-base master develop)"
+    local REVPARSE="$(git rev-parse --verify master)"
+    if [ "$MERGEBASE" != "$REVPARSE" ]; then
+        exit_with_error "Master branch is not merged on develop"
+    fi
+    set +e
+    local RESPONSE=$1
+    if [ "$RESPONSE" = "android" ]; then RESPONSE="android"; fi
+    if [ "$RESPONSE" = "Android" ]; then RESPONSE="android"; fi
+
+    if [ "$RESPONSE" = "ios" ]; then RESPONSE="iOS"; fi
+    if [ "$RESPONSE" = "iOS" ]; then RESPONSE="iOS"; fi
+    if [ "$RESPONSE" = "IOS" ]; then RESPONSE="iOS"; fi
+
+    if [ "$RESPONSE" = "android" ];
+    then
+        echo "Chose android platform"
+        build_prod_android $RESPONSE_SECOND
+    elif [ "$RESPONSE" = "iOS" ];
+    then
+        echo "Chose iOS platform"
+        build_prod_iOS $RESPONSE_SECOND
+    elif [ "$RESPONSE" != "android" ] && [ "$RESPONSE" != "iOS" ];
+    then
+        exit_with_error "Mispelled the platform. Try again!"
+    fi
+}
+
+exit_with_error ()
+{
+    set +e
+    echo $1
+    rm $KEYSTORE_PASSWORD_FILE 2>/dev/null
+    rm $ALIAS_PASSWORD_FILE 2>/dev/null
+    git clean -df *.xml  
+    git reset HEAD -- $CHANGED_FILES 2>/dev/null
+    git checkout HEAD -- $CHANGED_FILES 2>/dev/null
+    exit 1
+}
+
+setup_variables ()
+{
+    ALIAS_PASSWORD_FILE=tmp/alias_password
+    KEYSTORE_PASSWORD_FILE=tmp/key_password
+    LOCAL_VERSION_FILE=tmp/local_version
+    UNITY_LOG_FILE=tmp/unity_log
+    UNITY_RESULT_FILE=tmp/unity_result
+    UNITY_PATH_FILE=tmp/unity_path
+    CHANGED_FILES="VERSION CHANGES.md ProjectSettings/ProjectSettings.asset"
+    UNITY_ASSEMBLY="-batchmode -projectPath . -executeMethod TBS.CustomTools.AutoBuild"
+
+    if [ ! -f "$UNITY_PATH_FILE" ]; then
+        exit_with_error "Cannot find the Unity path. The path is automatically written by the TBS-Lib every time you open the project in Unity. Make sure your project includes TBS-Lib as a dependency"
+    fi
+    UNITY_EXE=`cygpath "$(cat $UNITY_PATH_FILE)"`
+    if [ ! -f "${UNITY_EXE}" ]; then
+        exit_with_error "Cannot find the Unity executable at the following path: $UNITY_EXE"
+    fi
+}
+
+version_dev()
+{
+    echo "Setting version build"
+    CURRENT_VERSION=`git describe --tags --always`
+    echo "$CURRENT_VERSION"
+    VERSION=`echo $CURRENT_VERSION | awk '{split($0,a,"-"); print a[1]}'`
+    BUILD=`echo $CURRENT_VERSION | awk '{split($0,a,"-"); print a[2]}'`
+    PATCH=`echo $CURRENT_VERSION | awk '{split($0,a,"-"); print a[3]}'`
+
+    echo $CURRENT_VERSION > $LOCAL_VERSION_FILE
+    echo "Setting project settings..."
+    exec_unity -nographics $UNITY_ASSEMBLY.SetProjectSettingsDev -quit
+    check_platform
+}
+
+version_prod()
+{
+    git pull --tags
+    version_control "0.1.1b1"
+    CURRENT_VERSION=$RETVAL
+
+    echo "Updating ProjectSettings in Unity..."
+    exec_unity -nographics $UNITY_ASSEMBLY.SetProjectSettingsProd -quit
+    check_platform
+
+    echo "-----------------------------------------------------------------"
+    echo ""
+    git add $CHANGED_FILES
+    echo ""
+    echo "-----------------------------------------------------------------"
+    set +e
+}
+
+exec_unity()
+{
+    set +e
+    "${UNITY_EXE}" $@
+    if [ $? -ne 0 ]; then
+        echo "Couldn't run Unity with the following command: $UNITY_EXE $@. Do you have the project already open? You should close other instances of Unity."
+        rm $KEYSTORE_PASSWORD_FILE 2>/dev/null
+        rm $ALIAS_PASSWORD_FILE 2>/dev/null
+        git reset HEAD -- $CHANGED_FILES 2>/dev/null
+        git checkout HEAD -- $CHANGED_FILES 2>/dev/null
+        git clean -df *.xml
+        #git checkout -- .
+        exit
+    fi
+    set -e
+}
+
+exec_unity_without_error_check()
+{
+    set +e
+    "${UNITY_EXE}" $@
+    set -e
+}
+
+# Check if a password inserted by the user matches the stored checksum.
+# The first time this function is called a new checksum file is created.
+# The password will be returned inside the global variable $RETVAL
+check_password()
+{
+    # Create tmp directory if it doesn't exist
+    mkdir -p tmp
+
+    local CHECKSUM_FILE="tmp/$1_password_checksum"
+
+    # If the checksum file exists, prompts the user to insert the password
+    if [ -f $CHECKSUM_FILE ]; then
+        local CHECKSUM=`cat $CHECKSUM_FILE`
+        # Ask at most 3 times
+        for i in `seq 1 3`; do
+            read -p "Please insert the $1 password: " PASSWORD
+            USER_CHECKSUM=`echo $PASSWORD | md5sum`
+            if [ "$USER_CHECKSUM" = "$CHECKSUM" ]; then
+                break
+            else
+                echo "Wrong password"
+            fi
+        done
+        # Exit if the user doesn't know the password
+        if [ "$USER_CHECKSUM" != "$CHECKSUM" ]; then
+            exit_with_error
+        fi
+
+    # If the checksum file dose not exist, ask the user to insert a new password
+    else
+        echo "Cannot find the $1 checksum"
+        # Ask at most 3 times
+        for i in `seq 1 3`; do
+            read -p "Please insert the $1 password: " PASSWORD
+            read -p "Please confirm the $1 password: " CONFIRM
+            if [ "$PASSWORD" = "$CONFIRM" ]; then
+                break
+            else
+                echo "Password and confirmation don't match"
+            fi
+        done
+        # Exit only if the user is so stupid he can't insert a password and confirm it
+        if [ "$PASSWORD" != "$CONFIRM" ]; then
+            exit_with_error
+        fi
+        echo $PASSWORD | md5sum > $CHECKSUM_FILE
+    fi
+
+    RETVAL=$PASSWORD
+}
+
+check_platform()
+{
+    set -e
+   # exec_unity -projectPath . -nographics $UNITY_ASSEMBLY.CheckIfCorrectPlatform$PLATFORM -quit
+    local SUCCESS="$(cat $UNITY_RESULT_FILE)"
+    if [ "$SUCCESS" != "SUCCESS" ];
+    then
+        echo ""
+        exit_with_error "Current platform is not Correct. Please change it in Unity and run the command again"
+    fi
+    echo "Platforms setting in Unity match the selection. Continuing process..."
+    set +e
+}
+
+run_test()
+{
+    echo "Running tests..."
+    echo "" > $UNITY_LOG_FILE
+    exec_unity_without_error_check -projectPath . -batchmode -nographics -runEditorTests -editorTestsResultFile
+    echo "Finished running tests"
+    echo "Reading test results..."
+    exec_unity -nographics $UNITY_ASSEMBLY.RunTests -quit
+    read_test_results
+    git clean -df *.xml  
+}
+
+read_test_results()
+{
+    echo
+    echo '__/$$$$$$$$$$$$$$$__/$$$$$$$$$$$$$$$_____/$$$$$$$$$$$____/$$$$$$$$$$$$$$$        '
+    echo ' _\///////$$$/////__\/$$$///////////____/$$$/////////$$$_\///////$$$/////_       '
+    echo '  _______\/$$$_______\/$$$______________\//$$$______\///________\/$$$______      '
+    echo '   _______\/$$$_______\/$$$$$$$$$$$_______\////$$$_______________\/$$$______     '
+    echo '    _______\/$$$_______\/$$$///////___________\////$$$____________\/$$$______    '
+    echo '     _______\/$$$_______\/$$$_____________________\////$$$_________\/$$$______   '
+    echo '      _______\/$$$_______\/$$$______________/$$$______\//$$$________\/$$$______  '
+    echo '       _______\/$$$_______\/$$$$$$$$$$$$$$$_\///$$$$$$$$$$$/_________\/$$$______ '
+    echo '        _______\///________\///////////////____\///////////___________\///_______'
+    echo
+
+    cat $UNITY_LOG_FILE
+    local RESULT="$(cat $UNITY_RESULT_FILE)"
+    if [ "$RESULT" != "SUCCESS" ];
+    then
+        exit_with_error "Please fix the tests and run the command again"
+    fi
+}
+
+time_stamp_diff()
+{
+    endProgramTime=$(date -r ./Builds/$CURRENT_VERSION.apk "+ %H:%M")
+
+    endBase=(`echo $endProgramTime | tr ':' ' '`)
+    startBase=(`echo $startProgramTime | tr ':' ' '`)
+
+    hour_end=${endBase[0]}
+    hour_end=${hour_end#0}
+
+    hour_start=${startBase[0]}
+    hour_start=${hour_start#0}
+
+    minute_end=${endBase[1]}
+    minute_end=${minute_end#0}
+
+    minute_start=${startBase[1]}
+    minute_start=${minute_start#0}
+
+    let $((diff_hour = hour_end - hour_start))
+    let $((diff_minute = minute_end - minute_start))
+
+    #check if hour shifted
+    if [ $diff_hour -gt 0 ] && [ "$diff_minute" -lt 0 ]; then
+        $(((diff_minute = 60 + $minute_end) - $minute_start))
+    fi
+
+    if [ "$diff_hour" -ge 0 ] && [ "$diff_minute" -ge 0 ]; then
+        if [ "$diff_hour" -eq 0 ] && [ "$diff_minute" -eq 0 ];then
+            exit_with_error "The build failed. No build made and the timestamp was checked. Please open Unity and check why build failed. Password can be wrong, so test it."
+        else
+            echo "It took $diff_hour hours and $diff_minute minutes"
+        fi
+    else
+        exit_with_error "The build failed. No build made and the timestamp was checked. Please open Unity and check why build failed. Password can be wrong, so test it."
+    fi
+}
+
+build_dev_android()
+{
+    echo ""
+    version_dev
+    echo ""
+    echo "Trying to make a build for Android..."
+    set -e
+    #checking if there is already a build with this name
+    if [ -f "./Builds/$CURRENT_VERSION.apk" ]; then
+        startProgramTime=$(date -r ./Builds/$CURRENT_VERSION.apk "+ %H:%M")
+    else
+        startProgramTime="false"
+    fi
+    set +e
+
+    exec_unity $UNITY_ASSEMBLY.SetDevelopmentBuild -logfile tmp/Editor -quit &
+    sleep 1 &&
+    tail -n0 -F --pid=$! tmp/Editor 2>/dev/null
+
+    echo ""
+    local RESULT="$(cat $UNITY_RESULT_FILE)"
+    CURRENT_VERSION=`git describe --tags --always`
+
+    #check if build with this name has been made
+    if [ ! -f "./Builds/$CURRENT_VERSION.apk" ]; then
+        exit_with_error "The build failed. No build made. Please open Unity and check why build failed. Password can be wrong, so test it."
+    else
+        if [ "$startProgramTime" != "false" ];then
+            time_stamp_diff
+        fi
+    fi
+
+    if [ "$RESULT" != "SUCCESS" ];
+    then
+        exit_with_error "The build failed with errors. Please open Unity and fix them, then run the command again."
+    fi
+    #git checkout -- .
+    echo "Build was sucessfully made in:"
+    echo ""
+    set -e
+    echo `readlink -f ./Builds/$CURRENT_VERSION.apk`
+    echo `start Builds`
+    set +e
+    echo "-----------Finished with the process.----------------"
+}
+
+build_prod_android()
+{
+    local RESPONSE=$1
+
+    if [ "$RESPONSE" != "--skip-version-tests" ]; then
+        if [ "$RESPONSE" != "--skip-version" ]; then
+            version_prod
+            echo ""
+        fi
+    fi
+
+    if [ "$RESPONSE" != "--skip-version-tests" ]; then
+        if [ "$RESPONSE" != "--skip-tests" ]; then
+            run_test
+            echo ""
+        fi
+    fi
+    CURRENT_VERSION=`cat VERSION`
+
+    #checking if there is already a build with this name
+    if [ -f "./Builds/$CURRENT_VERSION.apk" ]; then
+        startProgramTime=$(date -r ./Builds/$CURRENT_VERSION.apk "+ %H:%M")
+    else
+        startProgramTime="false"
+    fi
+
+    echo "Trying to make a build for Android..."
+    exec_unity $UNITY_ASSEMBLY.BuildProductionBuild -logfile tmp/Editor -quit &
+    sleep 1 &&
+    tail -n0 -F --pid=$! tmp/Editor 2>/dev/null
+    echo ""
+    local RESULT="$(cat $UNITY_RESULT_FILE)"
+
+    #check if build with this name has been made
+    if [ ! -f "./Builds/$CURRENT_VERSION.apk" ]; then
+        exit_with_error "The build failed. No build made. Please open Unity and check why build failed. Password can be wrong, so test it."
+    #check if the build time stamp is in correct time window
+    else
+        if [ "$startProgramTime" != "false" ];then
+            time_stamp_diff
+        fi
+    fi
+    #check unity_result file
+    if [ "$RESULT" != "SUCCESS" ];
+    then
+        exit_with_error "The build failed with errors. Please open Unity and fix them, then run the command again."
+    fi
+    echo "Build was succesfull"
+    echo ""
+    set -e
+
+    echo `readlink -f ./Builds/$CURRENT_VERSION.apk`
+    echo `start Builds`
+
+    git checkout -- .
+    if [ "$RESPONSE" != "--skip-version" ] && [ "$RESPONSE" != "--skip-version-tests" ];then
+        git commit -m "[AUTO] ProjectSettings and VERSION with CHNAGES.md updated. $CURRENT_VERSION"
+        git fetch origin master:master
+        git checkout master
+        git merge develop
+        set -e
+        git tag -a -m "Tagging version $CURRENT_VERSION" $CURRENT_VERSION
+        set +e
+        git push origin --tags
+        git push
+        echo ""
+        git checkout develop
+        git merge master
+        git pull
+        git push
+    fi
+    echo "" > $KEYSTORE_PASSWORD_FILE
+    echo "" > $ALIAS_PASSWORD_FILE
+    echo "-----------Finished with the process.----------------"
+    set +e
+}
+
+build_dev_iOS()
+{
+    echo ""
+    check_platform iOS
+    echo ""
+    version_dev
+    echo ""
+    echo "Trying to make a build for Android..."
+    set -e
+    #checking if there is already a build with this name
+    if [ -f "./Builds/$CURRENT_VERSION.apk" ]; then
+        startProgramTime=$(date -r ./Builds/$CURRENT_VERSION.apk "+ %H:%M")
+    else
+        startProgramTime="false"
+    fi
+    set +e
+
+    exec_unity $UNITY_ASSEMBLY.SetDevelopmentiOS -logfile tmp/Editor -quit &
+    sleep 1 &&
+    tail -n0 -F --pid=$! tmp/Editor 2>/dev/null
+
+    echo ""
+    local RESULT="$(cat $UNITY_RESULT_FILE)"
+    CURRENT_VERSION=`git describe --tags --always`
+
+    #check if build with this name has been made
+    if [ ! -f "./Builds/$CURRENT_VERSION.apk" ]; then
+        exit_with_error "The build failed. No build made. Please open Unity and check why build failed. Password can be wrong, so test it."
+    else
+        if [ "$startProgramTime" != "false" ];then
+            time_stamp_diff
+        fi
+    fi
+
+    if [ "$RESULT" != "SUCCESS" ];
+    then
+        exit_with_error "The build failed with errors. Please open Unity and fix them, then run the command again."
+    fi
+    #git checkout -- .
+    echo "Build was sucessfully made in:"
+    echo ""
+    set -e
+    echo `readlink -f ./Builds/$CURRENT_VERSION.apk`
+    echo `start Builds`
+    set +e
+    echo "-----------Finished with the process.----------------"
+}
+
+build_prod_iOS()
+{
+    exit_with_error "This feature is not implemented yet"
+
+    local RESPONSE=$1
+    echo ""
+    check_platform iOS
+    echo ""
+    if [ "$RESPONSE" != "--skip-version-tests" ]; then
+        if [ "$RESPONSE" != "--skip-tests" ]; then
+            run_test
+            echo ""
+        fi
+        if [ "$RESPONSE" != "--skip-version" ]; then
+            version_prod
+            echo ""
+        fi
+
+    fi
+    CURRENT_VERSION=`cat VERSION`
+
+    #checking if there is already a build with this name
+    if [ -f "./Builds/$CURRENT_VERSION.apk" ]; then
+        startProgramTime=$(date -r ./Builds/$CURRENT_VERSION.apk "+ %H:%M")
+    else
+        startProgramTime="false"
+    fi
+
+    echo "Trying to make a build for Android..."
+    exec_unity $UNITY_ASSEMBLY.BuildProductioniOS -logfile tmp/Editor -quit &
+    sleep 1 &&
+    tail -n0 -F --pid=$! tmp/Editor 2>/dev/null
+    echo ""
+    local RESULT="$(cat $UNITY_RESULT_FILE)"
+
+    #check if build with this name has been made
+    if [ ! -f "./Builds/$CURRENT_VERSION.apk" ]; then
+        exit_with_error "The build failed. No build made. Please open Unity and check why build failed. Password can be wrong, so test it."
+    #check if the build time stamp is in correct time window
+    else
+        if [ "$startProgramTime" != "false" ];then
+            time_stamp_diff
+        fi
+    fi
+    #check unity_result file
+    if [ "$RESULT" != "SUCCESS" ];
+    then
+        exit_with_error "The build failed with errors. Please open Unity and fix them, then run the command again."
+    fi
+    echo "Build was succesfull"
+    echo ""
+    set -e
+
+    echo `readlink -f ./Builds/$CURRENT_VERSION.apk`
+    echo `start Builds`
+
+    git checkout -- .
+    if [ "$RESPONSE" != "--skip-version" ] && [ "$RESPONSE" != "--skip-version-tests" ];then
+        git commit -m "[AUTO] ProjectSettings and VERSION with CHNAGES.md updated. $CURRENT_VERSION"
+        git fetch origin master:master
+        git checkout master
+        git merge develop
+        set -e
+        git tag -a -m "Tagging version $CURRENT_VERSION" $CURRENT_VERSION
+        set +e
+        git push origin --tags
+        git push
+        echo ""
+        git checkout develop
+        git merge master
+        git pull
+        git push
+    fi
+    echo "" > $KEYSTORE_PASSWORD_FILE
+    echo "" > $ALIAS_PASSWORD_FILE
+    echo "-----------Finished with the process.----------------"
+    set +e
+}
+
+#cd /c/Users/kaime/Documents/UnityProject/Git
+#/c/Users/kaime/Documents/00_MOKSLAI/Graduation/TBS/tbs/
