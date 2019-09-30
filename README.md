@@ -8,4 +8,11 @@ The tools that were created for the purpose:
 * Material Processor
 * Animated Particle Texture Sprite Sheet fill
 
+Knowledge that was used to create the tools:
+* C#
+* Bash
+* Regex
+* Unity
+* Git Bash
+
 ### More details in how the tools work can be found in WIKI
