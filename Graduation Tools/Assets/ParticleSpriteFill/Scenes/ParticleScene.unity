@@ -212,9 +212,9 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1447865955}
-  - component: {fileID: 1447865954}
-  - component: {fileID: 1447865953}
   - component: {fileID: 1447865956}
+  - component: {fileID: 1447865953}
+  - component: {fileID: 1447865954}
   m_Layer: 0
   m_Name: Particle System
   m_TagString: Untagged
@@ -911,7 +911,7 @@ ParticleSystem:
         m_RotationOrder: 4
   ShapeModule:
     serializedVersion: 6
-    enabled: 1
+    enabled: 0
     type: 4
     angle: 25
     length: 5
@@ -1113,7 +1113,7 @@ ParticleSystem:
           m_PostInfinity: 2
           m_RotationOrder: 4
   EmissionModule:
-    enabled: 1
+    enabled: 0
     serializedVersion: 4
     rateOverTime:
       serializedVersion: 2
@@ -1732,7 +1732,25 @@ ParticleSystem:
     cycles: 1
     uvChannelMask: -1
     rowMode: 1
-    sprites: []
+    sprites:
+    - sprite: {fileID: 4114148804752696299, guid: cecc5c833bf9ec34ea3630ff6f2dddc9,
+        type: 3}
+    - sprite: {fileID: -7466142097209270298, guid: cecc5c833bf9ec34ea3630ff6f2dddc9,
+        type: 3}
+    - sprite: {fileID: -8435285542228682322, guid: cecc5c833bf9ec34ea3630ff6f2dddc9,
+        type: 3}
+    - sprite: {fileID: 1577969946692114216, guid: cecc5c833bf9ec34ea3630ff6f2dddc9,
+        type: 3}
+    - sprite: {fileID: 4306093020534397091, guid: cecc5c833bf9ec34ea3630ff6f2dddc9,
+        type: 3}
+    - sprite: {fileID: 5243962810577325383, guid: cecc5c833bf9ec34ea3630ff6f2dddc9,
+        type: 3}
+    - sprite: {fileID: 1007490361957516042, guid: cecc5c833bf9ec34ea3630ff6f2dddc9,
+        type: 3}
+    - sprite: {fileID: -838010521572198323, guid: cecc5c833bf9ec34ea3630ff6f2dddc9,
+        type: 3}
+    - sprite: {fileID: -1141534541555573339, guid: cecc5c833bf9ec34ea3630ff6f2dddc9,
+        type: 3}
     flipU: 0
     flipV: 0
   VelocityModule:

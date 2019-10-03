@@ -6,6 +6,6 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Other/CubeSpawnTest/Scene/SampleScene.unity
-    guid: 9fc0d4010bbf28b4594072e72b8655ab
+    path: Assets/AutoBuild_Rocco/Scenes/Center.unity
+    guid: 50d5284a6e3bea1438df7d52ce792ed5
   m_configObjects: {}
