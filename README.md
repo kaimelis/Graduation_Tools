@@ -16,3 +16,4 @@ Knowledge that was used to create the tools:
 * Git Bash
 
 ### More details in how the tools work can be found in WIKI
+[Wiki](https://github.com/kaimelis/Graduation_Tools/wiki)
