@@ -5,7 +5,16 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
+  - enabled: 0
+    path: Assets/Tools/AutoBuild_Rocco/Scenes/CenterScene.unity
+    guid: 00000000000000000000000000000000
   - enabled: 1
-    path: Assets/AutoBuild_Rocco/Scenes/Center.unity
-    guid: 50d5284a6e3bea1438df7d52ce792ed5
+    path: Assets/Tools/AutoBuild_Rocco/Scenes/LeftScene.unity
+    guid: 00000000000000000000000000000000
+  - enabled: 0
+    path: Assets/Tools/AutoBuild_Rocco/Scenes/RightScene.unity
+    guid: 00000000000000000000000000000000
+  - enabled: 1
+    path: Assets/Tools/AutoBuild_Rocco/Scenes/Default.unity
+    guid: 00000000000000000000000000000000
   m_configObjects: {}
