@@ -209,9 +209,8 @@ namespace Custom.Tool
             if (summary.result == BuildResult.Failed)
                 return;
             scenesPaths.Clear();
-            //build
-           
             Debug.Log("Made a build for " + _buildType.ToString());
+            DeleteFiles();
             if(_buildCount > _currentBuild)
             {
                 Debug.Log("Will make a next build");
@@ -276,6 +275,40 @@ namespace Custom.Tool
             string jsonInfo = JsonUtility.ToJson(saveData, true);
             File.WriteAllText(jsonFile,jsonInfo);
            
+        }
+
+        private void DeleteFiles()
+        {
+            Debug.Log("<color=red>Deleting files</color>");
+            string newPath = _buildPath +  "/" + PlayerSettings.productName + "_" + _buildType.ToString() + "_Data/StreamingAssets";
+            if (_buildType == BuildType.Left || _buildType == BuildType.Right)
+            {
+               var files =  Directory.GetFiles(newPath, "*center*", SearchOption.AllDirectories);
+                for (int i = 0; i < files.Length; i++)
+                {
+                    Debug.Log("<color=red>" + files[i] + "</color>");
+                    File.Delete(files[i]);
+                }
+            }
+            if (_buildType == BuildType.Center || _buildType == BuildType.Left)
+            {
+                var files = Directory.GetFiles(newPath, "*right*",SearchOption.AllDirectories);
+                for (int i = 0; i < files.Length; i++)
+                {
+                    Debug.Log("<color=red>" + files[i] + "</color>");
+                    File.Delete(files[i]);
+                }
+            }
+             if (_buildType == BuildType.Right || _buildType == BuildType.Center)
+            {
+                var files = Directory.GetFiles(newPath, "*left*", SearchOption.AllDirectories);
+                for (int i = 0; i < files.Length; i++)
+                {
+                    Debug.Log("<color=red>" + files[i] + "</color>");
+                    File.Delete(files[i]);
+                }
+            }
+
         }
 
         private string[] GetScenePaths()
